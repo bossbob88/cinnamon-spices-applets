@@ -745,6 +745,17 @@ var GraphPieChart = class GraphPieChart {
     } else {
       // Bar chart
       let vbarWidth = 0.6 * (_width - 6);
+      let _x = 1 + 0.25 * width;
+      if (this.applet.Swap_enabled) {
+        if (this.applet.Mem_swapWidth == 0) {
+          vbarWidth = 0.9 * (_width - 6);
+          _x = 6;
+        }
+        else if (this.applet.Mem_swapWidth != 100) {
+          vbarWidth = 1 * (_width * (1 - this.applet.Mem_swapWidth / 100) - 6);
+          _x = 1 + (this.applet.Mem_swapWidth / 100) * width;
+        }
+      }
       let r=1, g=1, b=1, a=1;
       var old_height = 0;
       var vbarHeight;
@@ -757,7 +768,7 @@ var GraphPieChart = class GraphPieChart {
         if (i==0) plus = 1;
         this.drawRoundedRectangle(
           areaContext,
-          1 + 0.25 * width, // x
+          _x, // x
           height - (plus + old_height + vbarHeight), // y
           vbarWidth, // width
           vbarHeight, // height
@@ -1129,9 +1140,11 @@ var GraphLineChart = class GraphLineChart {
     var total = [0, 0];
     var previous = [0, 0];
     const refreshRate = 0.001 * this.applet.refreshRate;
+    var show1decimal = false;
 
     if (totalNetOK) {
       if (this.applet.Net_total_hovering_only && !this.applet.hovered) return;
+      show1decimal = this.applet.Net_total1decimal;
       wantSpeed = this.applet.Net_total_type === "speed";
 
       isOnlyLeftOrRight = this.applet.Net_totalCorner.includes("O");
@@ -1148,6 +1161,7 @@ var GraphLineChart = class GraphLineChart {
 
     if (speedDiskOK) {
       if (this.applet.Disk_speed_hovering_only && !this.applet.hovered) return;
+      show1decimal = this.applet.Disk_speed1decimal;
       wantSpeed = true;
 
       isOnlyLeftOrRight = this.applet.Disk_speedCorner.includes("O");
@@ -1193,24 +1207,61 @@ var GraphLineChart = class GraphLineChart {
     }
 
     if (totalNetOK || speedDiskOK) {
+      let _value;
       let _down = formatBytesValueUnit(total[0], 2, false);
       let down;
       if (isOnlyLeftOrRight) {
-        down = Math.round(_down[0]).toString().padStart(4, " ") + " " + _down[1].trim().padStart(3, " ");
-        if (_down[0] == 0) down = "0".padStart(4, " ") + " " + unit0.padStart(3, " ");
+        if (show1decimal) {
+          _value = Math.round(_down[0] * 10) / 10;
+          if (Math.round(_value) == _value)
+            down = (_value.toString() + ".0").padStart(6, " ") + " " + _down[1].trim().padStart(3, " ");
+          else
+            down = _value.toString().padStart(6, " ") + " " + _down[1].trim().padStart(3, " ");
+          if (_down[0] == 0) down = "0.0".padStart(6, " ") + " " + unit0.padStart(3, " ");
+        } else {
+          down = Math.round(_down[0]).toString().padStart(4, " ") + " " + _down[1].trim().padStart(3, " ");
+          if (_down[0] == 0) down = "0".padStart(4, " ") + " " + unit0.padStart(3, " ");
+        }
       } else {
-        down =  Math.round(_down[0]).toString().padStart(4, " ") + " " + _down[1].padStart(3, " ");
-        if (_down[0] == 0) down = "0".padStart(4, " ") + " " + unit0.padStart(3, " ");
+        if (show1decimal) {
+           _value = Math.round(_down[0] * 10) / 10;
+          if (Math.round(_value) == _value)
+            down = (_value.toString() + ".0").padStart(6, " ") + " " + _down[1].padStart(3, " ");
+          else
+            down =  _value.toString().padStart(6, " ") + " " + _down[1].padStart(3, " ");
+          if (_down[0] == 0) down = "0.0".padStart(6, " ") + " " + unit0.padStart(3, " ");
+        } else {
+          down =  Math.round(_down[0]).toString().padStart(4, " ") + " " + _down[1].padStart(3, " ");
+          if (_down[0] == 0) down = "0".padStart(4, " ") + " " + unit0.padStart(3, " ");
+        }
       }
 
       let _up = formatBytesValueUnit(total[1], 2, false);
       let up;
       if (isOnlyLeftOrRight) {
-        up =  Math.round(_up[0]).toString().padStart(4, " ") + " " + _up[1].trim().padStart(3, " ");
-        if (_up[0] == 0) up = "0".padStart(4, " ") + " " + unit1.padStart(3, " ");
+        if (show1decimal) {
+          _value = Math.round(_up[0] * 10) / 10;
+          if (Math.round(_value) == _value)
+            up =  (_value.toString() + ".0").padStart(6, " ") + " " + _up[1].trim().padStart(3, " ");
+          else
+            up =  _value.toString().padStart(6, " ") + " " + _up[1].trim().padStart(3, " ");
+          if (_up[0] == 0) up = "0.0".padStart(6, " ") + " " + unit1.padStart(3, " ");
+        } else {
+          up =  Math.round(_up[0]).toString().padStart(4, " ") + " " + _up[1].trim().padStart(3, " ");
+          if (_up[0] == 0) up = "0".padStart(4, " ") + " " + unit1.padStart(3, " ");
+        }
       } else {
-        up =  Math.round(_up[0]).toString().padStart(4, " ") + " " + _up[1].padStart(3, " ");
-        if (_up[0] == 0) up = "0".padStart(4, " ") + " " + unit1.padStart(3, " ");
+        if (show1decimal) {
+          _value = Math.round(_up[0] * 10) / 10;
+          if (Math.round(_value) == _value)
+            up =  (_value.toString() + ".0").padStart(6, " ") + " " + _up[1].padStart(3, " ");
+          else
+            up =  _value.toString().padStart(6, " ") + " " + _up[1].padStart(3, " ");
+          if (_up[0] == 0) up = "0.0".padStart(6, " ") + " " + unit1.padStart(3, " ");
+        } else {
+          up =  Math.round(_up[0]).toString().padStart(4, " ") + " " + _up[1].padStart(3, " ");
+          if (_up[0] == 0) up = "0".padStart(4, " ") + " " + unit1.padStart(3, " ");
+        }
       }
 
       let downstr = '▼ ' + down;

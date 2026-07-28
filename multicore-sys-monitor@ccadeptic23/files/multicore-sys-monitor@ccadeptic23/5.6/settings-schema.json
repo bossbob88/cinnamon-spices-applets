@@ -262,11 +262,13 @@
         "Mem_enabledBufferCacheSharedTooltip",
         "Swap_enabled",
         "Swap_enabledTooltip",
+        "Swap_enabledZramTooltip",
         "Mem_method",
         "Mem_squared",
         "Mem_width",
         "Mem_chartType",
         "Mem_startAt12Oclock",
+        "Mem_showAmountsInTooltip",
         "Mem_showBytesInTooltip",
         "Mem_value_display",
         "Mem_valueCorner",
@@ -358,6 +360,7 @@
         "Net_total_display",
         "Net_total_hovering_only",
         "Net_totalCorner",
+        "Net_total1decimal",
         "flowFontFactor"
       ]
     },
@@ -464,6 +467,7 @@
         "Disk_speed_display",
         "Disk_speed_hovering_only",
         "Disk_speedCorner",
+        "Disk_speed1decimal",
         "flowFontFactor"
       ]
     },
@@ -1166,6 +1170,12 @@
     "default": true,
     "description": "Enable Swap Tooltip"
   },
+  "Swap_enabledZramTooltip": {
+    "type": "switch",
+    "default": true,
+    "description": "Enable ZRAM Tooltip (only shown if /dev/zram0 exists)",
+    "dependency": "Swap_enabledTooltip"
+  },
   "Mem_labelOn": {
     "type": "switch",
     "default": true,
@@ -1246,10 +1256,16 @@
     "description": "Origin at 12 o'clock",
     "dependency": "Mem_chartType=pie"
   },
+  "Mem_showAmountsInTooltip": {
+    "type": "switch",
+    "default": true,
+    "description": "Show Memory/Swap byte amounts (Total, Used, Available) in the tooltip"
+  },
   "Mem_showBytesInTooltip": {
     "type": "switch",
     "default": true,
-    "description": "Show the amounts (in Bytes) of Total, Used and Available memory in the tooltip"
+    "description": "Tooltip Memory/Swap amounts: ON = SI units (kB, MB, GB); OFF = IEC binary units (KiB, MiB, GiB)",
+    "dependency": "Mem_showAmountsInTooltip"
   },
   "Mem_value_display": {
     "type": "combobox",
@@ -1305,6 +1321,7 @@
     "options": {
       "100%": 100,
       "25%, left side": 25,
+      "50%, left side": 50,
       "None": 0
     },
     "tooltip": "100%: The Swap graph is a bar that spans the entire width of the graph, behind the circle.\n10%: The Swap graph is a bar that occupies 10% of the graph width, to the left of the circle.\nNone: No Swap bar."
@@ -2178,6 +2195,16 @@
     "step": 1,
     "units": "%",
     "description": "Font size: percentage of the box height"
+  },
+  "Net_total1decimal": {
+    "type": "switch",
+    "default": false,
+    "description": "Show 1 decimal"
+  },
+  "Disk_speed1decimal": {
+    "type": "switch",
+    "default": false,
+    "description": "Show 1 decimal"
   },
   "flowFontFactor": {
     "type": "scale",

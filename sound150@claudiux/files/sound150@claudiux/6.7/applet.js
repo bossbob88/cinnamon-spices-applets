@@ -355,6 +355,7 @@ var Sound150Applet = class Sound150Applet extends Applet.TextIconApplet {
 
         this.settings.bind("muteSoundOnClosing", "muteSoundOnClosing");
         this.settings.bind("startupVolume", "startupVolume");
+        this.settings.bind("showOSDonFullscreen", "showOSDonFullscreen");
         this.settings.bind("showOSDonStartup", "showOSDonStartup");
         this.settings.bind("showPercent", "showPercent", () => {
             this.PERCENT_CHAR = (this.showPercent) ? _("%") : "";
@@ -653,6 +654,7 @@ var Sound150Applet = class Sound150Applet extends Applet.TextIconApplet {
         this._output = null;
         this._outputMutedId = null;
         this._outputIcon = "audio-volume-muted-symbolic";
+        this._playerIcon = [null, false];
 
         this._channelMap = null;
 
@@ -774,6 +776,11 @@ var Sound150Applet = class Sound150Applet extends Applet.TextIconApplet {
 
         let mv = 1 * this.maxVolume;
         this._on_maxVolume_changed(mv);
+    }
+
+    is_fullscreen() {
+        if (this.showOSDonFullscreen) return false;
+        return global.display.get_monitor_in_fullscreen(this.panel.monitorIndex);
     }
 
     _onBoxResized(width, height) {
@@ -1617,7 +1624,7 @@ var Sound150Applet = class Sound150Applet extends Applet.TextIconApplet {
                 iconName += "overamplified";
             this._outputIcon = iconName;
 
-            if (this.showMediaKeysOSD) {
+            if (this.showMediaKeysOSD && !this.is_fullscreen()) {
                 icon = Gio.Icon.new_for_string(this._outputIcon);
                 _bar_level = null;
                 _volume_str = "";
@@ -1646,7 +1653,7 @@ var Sound150Applet = class Sound150Applet extends Applet.TextIconApplet {
             //~ if (this.actor && this.actor.get_stage() != null && !this.keepAlbumArtIcon)
             if (this.actor && this.actor.get_stage() != null)
                 this.set_applet_icon_symbolic_name(this._outputIcon);
-            if (this.showMediaKeysOSD) {
+            if (this.showMediaKeysOSD && !this.is_fullscreen()) {
                 icon = Gio.Icon.new_for_string(this._outputIcon);
                 if (typeof(this.volume) == "string") {
                     if (this.volume.endsWith("%"))
@@ -1807,7 +1814,7 @@ var Sound150Applet = class Sound150Applet extends Applet.TextIconApplet {
             if (this.showBarLevel === true)
                 _bar_level = volume;
             let _maxLevel = Math.round(this._volumeMax / this._volumeNorm * 100) / 100;
-            if (this.showOSD && (this.showOSDonStartup || volume != parseInt(this.old_volume.slice(0, -1)))) {
+            if (this.showOSD && !this.is_fullscreen() && (this.showOSDonStartup || volume != parseInt(this.old_volume.slice(0, -1)))) {
                 try {
                     if (IS_OSD150_ENABLED())
                         Main.osdWindowManager.show(-1, icon, _volume_str, _bar_level, _maxLevel, this.OSDhorizontal);
@@ -2107,29 +2114,30 @@ var Sound150Applet = class Sound150Applet extends Applet.TextIconApplet {
 
         if (!this.allowChangeArt) return;
 
-        if (player && (player === true || player._playerStatus == 'Playing')) {
-            // Something is playing
-            if (this.showalbum) {
-                if (path) {
-                    this.setIcon(path, "player-path");
-                } else {
-                    if (this.showMicMutedOnIcon && (!this.mute_in_switch || this.mute_in_switch.state))
-                        this.setIcon("media-optical-cd-audio-with-mic-disabled", "player-name");
-                    else if (this.showMicUnmutedOnIcon && (this.mute_in_switch && !this.mute_in_switch.state))
-                        this.setIcon("media-optical-cd-audio-with-mic-enabled", "player-name");
-                    else
-                        this.setIcon("media-optical-cd-audio", "player-name");
-                }
-            } else {
-                if (this.showMicMutedOnIcon && (!this.mute_in_switch || this.mute_in_switch.state))
-                    this.setIcon("audio-x-generic-with-mic-disabled", "player-name");
-                else if (this.showMicUnmutedOnIcon && (this.mute_in_switch && !this.mute_in_switch.state))
-                    this.setIcon("audio-x-generic-with-mic-enabled", "player-name");
-                else
-                    this.setIcon("audio-x-generic", "player-name");
-            }
+        if (player && (player === true || player._playerStatus == 'Playing') && this.showalbum && path) {
+            this.setIcon(path, "player-path");
+            //~ // Something is playing
+            //~ if (this.showalbum) {
+                //~ if (path) {
+                    //~ this.setIcon(path, "player-path");
+                //~ } else {
+                    //~ if (this.showMicMutedOnIcon && (!this.mute_in_switch || this.mute_in_switch.state))
+                        //~ this.setIcon("media-optical-cd-audio-with-mic-disabled", "player-name");
+                    //~ else if (this.showMicUnmutedOnIcon && (this.mute_in_switch && !this.mute_in_switch.state))
+                        //~ this.setIcon("media-optical-cd-audio-with-mic-enabled", "player-name");
+                    //~ else
+                        //~ this.setIcon("media-optical-cd-audio", "player-name");
+                //~ }
+            //~ } else {
+                //~ if (this.showMicMutedOnIcon && (!this.mute_in_switch || this.mute_in_switch.state))
+                    //~ this.setIcon("audio-x-generic-with-mic-disabled", "player-name");
+                //~ else if (this.showMicUnmutedOnIcon && (this.mute_in_switch && !this.mute_in_switch.state))
+                    //~ this.setIcon("audio-x-generic-with-mic-enabled", "player-name");
+                //~ else
+                    //~ this.setIcon("audio-x-generic", "player-name");
+            //~ }
         } else {
-            // Nothing is playing - clear player icon and show volume icon
+            //~ // Nothing is playing - clear player icon and show volume icon
             this._playerIcon = [null, false];
             this.setIcon(this._outputIcon);
         }
@@ -2982,7 +2990,7 @@ var Sound150Applet = class Sound150Applet extends Applet.TextIconApplet {
         if (!this.actor || this.actor.get_stage() == null) return;
 
         //~ logDebug("volume_near_icon(comesFrom="+ comesFrom +")");
-        if (this.showMediaKeysOSD &&
+        if (this.showMediaKeysOSD && !this.is_fullscreen() &&
             this.alreadyCalledBysetAppletTooltip &&
             comesFrom === "setAppletTooltip()" &&
             this.volume !== this.old_volume

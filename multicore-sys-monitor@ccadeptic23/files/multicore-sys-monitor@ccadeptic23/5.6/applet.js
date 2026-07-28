@@ -140,13 +140,15 @@ const formatNumber = (value, decimals=2) => {
 }
 
 
-const formatBytesValueUnit = (bytes, decimals=2, withRate=true) => {
+const formatBytesValueUnit = (bytes, decimals=2, withRate=true, forceBinary=undefined) => {
     let _rate = (withRate === true) ? rate : "";
     if (bytes < 1) {
         return "0".padStart(spaces/2 - 1) + ".00".padEnd(spaces/2 - 1) + "B".padStart(3, " ") + _rate;
     }
     let dm = (decimals + 1) || 3;
-    let isBinary = get_nemo_size_prefixes().startsWith("base-2");
+    // forceBinary lets callers pick the unit base explicitly (true = IEC, false = SI);
+    // when left undefined we fall back to the Nemo "size-prefixes" preference.
+    let isBinary = (typeof forceBinary === "boolean") ? forceBinary : get_nemo_size_prefixes().startsWith("base-2");
     let k, sizes, i;
     if (!isBinary) {
         k = 1000;
@@ -215,6 +217,8 @@ var MCSM = class MCSM extends Applet.TextIconApplet {
         this.settings.bind("isHighlighted", "isHighlighted");
         this.settings.bind("percentFontFactor", "percentFontFactor");
         this.settings.bind("flowFontFactor", "flowFontFactor");
+        this.settings.bind("Net_total1decimal", "Net_total1decimal");
+        this.settings.bind("Disk_speed1decimal", "Disk_speed1decimal");
         this.settings.bind("CPU_useProgressiveColors", "CPU_useProgressiveColors");
         this.settings.bind("CPU_byActivity", "CPU_byActivity", () => { this.on_CPU_byActivity_changed(); });
         this.settings.bind("Net_devicesList", "Net_devicesList");
@@ -327,11 +331,13 @@ var MCSM = class MCSM extends Applet.TextIconApplet {
         this.settings.bind("Mem_enabledBufferCacheSharedTooltip", "Mem_enabledBufferCacheSharedTooltip");
         this.settings.bind("Swap_enabled", "Swap_enabled");
         this.settings.bind("Swap_enabledTooltip", "Swap_enabledTooltip");
+        this.settings.bind("Swap_enabledZramTooltip", "Swap_enabledZramTooltip");
         this.settings.bind("Mem_chartType", "Mem_chartType");
         this.settings.bind("Mem_squared", "Mem_squared");
         this.settings.bind("Mem_method", "Mem_method");
         this.settings.bind("Mem_width", "Mem_width", () => { this.adjust_Mem_width() });
         this.settings.bind("Mem_startAt12Oclock", "Mem_startAt12Oclock");
+        this.settings.bind("Mem_showAmountsInTooltip", "Mem_showAmountsInTooltip");
         this.settings.bind("Mem_showBytesInTooltip", "Mem_showBytesInTooltip");
         this.settings.bind("Mem_value_display", "Mem_value_display");
         this.settings.bind("Mem_valueCorner", "Mem_valueCorner");
@@ -534,6 +540,7 @@ var MCSM = class MCSM extends Applet.TextIconApplet {
         this.memoryProvider = new MemDataProvider(this);
         this.multiCpuProvider = new MultiCpuDataProvider(this);
         this.swapProvider = new SwapDataProvider(this);
+        this.zramProvider = new ZramDataProvider(this);
         this.buffcachesharedProvider = new BufferCacheSharedDataProvider(this);
         this.lastDataNet = {};
         this.networkProvider = new NetDataProvider(this);
@@ -684,10 +691,10 @@ var MCSM = class MCSM extends Applet.TextIconApplet {
                 Math.round(this.Net_width / this.graphStep) * this.graphStep
             );
         }
-        if (this.Net_total_display && this.Net_totalCorner.includes("O") && Net_width < 80)
-            Net_width = 80;
-        if (this.Net_total_display && !this.Net_totalCorner.includes("O") && Net_width < 160)
-            Net_width = 160;
+        //~ if (this.Net_total_display && this.Net_totalCorner.includes("O") && Net_width < 80)
+            //~ Net_width = 80;
+        //~ if (this.Net_total_display && !this.Net_totalCorner.includes("O") && Net_width < 160)
+            //~ Net_width = 160;
         this.Net_width = Net_width;
     }
 
@@ -699,10 +706,10 @@ var MCSM = class MCSM extends Applet.TextIconApplet {
                 Math.round(this.Disk_width / this.graphStep) * this.graphStep
             );
         }
-        if (this.Disk_speed_display && this.Disk_speedCorner.includes("O") && Disk_width < 80)
-            Disk_width = 80;
-        if (this.Disk_speed_display && !this.Disk_speedCorner.includes("O") && Disk_width < 160)
-            Disk_width = 160;
+        //~ if (this.Disk_speed_display && this.Disk_speedCorner.includes("O") && Disk_width < 80)
+            //~ Disk_width = 80;
+        //~ if (this.Disk_speed_display && !this.Disk_speedCorner.includes("O") && Disk_width < 160)
+            //~ Disk_width = 160;
         this.Disk_width = Disk_width;
     }
 
@@ -760,6 +767,7 @@ var MCSM = class MCSM extends Applet.TextIconApplet {
         const rate = 1 * this.refreshRate;
         this.mainLoopId = timeout_add(rate, () => {
             this.get_mem_info();
+            this.get_zram_info();
             this.get_cpu_info();
             this.get_net_info();
             this.get_disk_info();
@@ -1278,6 +1286,35 @@ var MCSM = class MCSM extends Applet.TextIconApplet {
         });
     }
 
+    get_zram_info() {
+        if (!this.isRunning) return;
+        if (!this.Swap_enabledTooltip || !this.Swap_enabledZramTooltip) return;
+        // Same data as `zramctl /dev/zram0 --output-all`, read straight from sysfs.
+        // If /dev/zram0 doesn't exist the first read rejects -> provider hidden.
+        Promise.all([
+            readFileAsync("/sys/block/zram0/mm_stat"),
+            readFileAsync("/sys/block/zram0/comp_algorithm"),
+            readFileAsync("/proc/swaps"),
+            readFileAsync("/sys/block/zram0/disksize")
+        ]).then(([mm, algo, swaps, disksizeRaw]) => {
+            const f = mm.trim().split(/\s+/).map((x) => 1 * x);
+            const orig = f[0], compr = f[1], total = f[2];
+            const disksize = 1 * disksizeRaw.trim();
+            const m = algo.match(/\[([^\]]+)\]/);
+            const algorithm = m ? m[1] : algo.trim();
+            const isSwap = swaps.split("\n").some((l) => l.trim().split(/\s+/)[0] === "/dev/zram0");
+            this.zramProvider.setData({
+                orig,
+                compr,
+                total,
+                disksize,
+                ratio: total > 0 ? orig / total : 0,
+                algorithm,
+                mountpoint: isSwap ? "[SWAP]" : "-"
+            });
+        }).catch(() => this.zramProvider.setData(null));
+    }
+
     get_cpu_info() {
         if (!this.isRunning) return;
         if (!this.CPU_enabled && !this.CPU_enabledTooltip) return;
@@ -1729,6 +1766,7 @@ var MCSM = class MCSM extends Applet.TextIconApplet {
             "multiCpuProvider",
             "memoryProvider",
             "swapProvider",
+            "zramProvider",
             "buffcachesharedProvider",
             "networkProvider",
             "diskProvider",
@@ -1879,16 +1917,23 @@ var MemDataProvider = class MemDataProvider {
                 memInfo["Buffers"] / memInfo["MemTotal"],
                 1 - memInfo["MemUsed"] / memInfo["MemTotal"]
             ]
-        } else { // System Monitor: https://github.com/JTourteau/gnome-system-monitor/blob/main/extension.js
+        } else { // System Monitor: used = MemTotal - MemAvailable
+                 // https://github.com/JTourteau/gnome-system-monitor/blob/main/extension.js
             let memAvailable = 1 * memInfo["MemAvailable"];
-            let memUsed = 1 * this.memTotal - memAvailable;
             let memBuffers = 1 * memInfo["Buffers"];
-            let memCached = 1 * memInfo["Cached"];
+            // "Used" must match Gnome System Monitor: MemTotal - MemAvailable.
+            let memUsed = this.memTotal - memAvailable;
+            // Split the remainder (= MemAvailable) into free / buffers / cached so the pie
+            // segments sum to MemTotal exactly and "Free" never goes negative.
+            let memFree = Math.min(1 * memInfo["MemFree"], memAvailable);
+            let reclaimable = memAvailable - memFree;            // >= 0
+            let memBuffersSeg = Math.min(memBuffers, reclaimable);
+            let memCachedSeg = reclaimable - memBuffersSeg;      // >= 0
             this.currentReadings = [
                 memUsed / this.memTotal,
-                memCached / this.memTotal,
-                memBuffers / this.memTotal,
-                1.0 - ((memUsed + memBuffers + memCached) / this.memTotal)
+                memCachedSeg / this.memTotal,
+                memBuffersSeg / this.memTotal,
+                memFree / this.memTotal
             ]
         }
     }
@@ -1902,15 +1947,22 @@ var MemDataProvider = class MemDataProvider {
             trans = this.applet.tooltipMemoryCustomTranslation;
         else
             trans = _("Memory");
-        let [strMemTotal, unitMemTotal] = formatBytesValueUnit(this.memTotal, 2, false);
-        if (this.applet.Mem_showBytesInTooltip) {
+        // Mem_showAmountsInTooltip toggles the byte amounts (Total/Used/Available); when off the
+        // tooltip is percentages-only. Mem_showBytesInTooltip selects the unit base for those amounts
+        // (ON = SI MB/GB, OFF = IEC MiB/GiB). The percentages are always shown.
+        let showAmounts = this.applet.Mem_showAmountsInTooltip;
+        let forceBinary = !this.applet.Mem_showBytesInTooltip;
+        if (showAmounts) {
+            let [strMemTotal, unitMemTotal] = formatBytesValueUnit(this.memTotal, 2, false, forceBinary);
             trans += " " + strMemTotal + " " + unitMemTotal;
         }
+        // Show the used percentage in the header, mirroring the Swap section.
+        trans += " (" + formatNumber(parseFloat((Math.round(10000 * this.currentReadings[0]) / 100)).toFixed(2), 2).padStart(5, " ") + " %)";
         let len = trans.length - 2;
         let toolTipString = "-".repeat(Math.trunc((2*(spaces + 1) - len)/2)) + " " + trans + " " + "-".repeat(Math.round((2*(spaces + 1) - len)/2)) + "\n";
-        if (this.applet.Mem_showBytesInTooltip) {
-            let [strMemUsed, unitMemUsed] = formatBytesValueUnit(this.memTotal * this.currentReadings[0], 2, false);
-            let [strMemAvail, unitMemAvail] = formatBytesValueUnit(this.memTotal * (1.0 - this.currentReadings[0]), 2, false);
+        if (showAmounts) {
+            let [strMemUsed, unitMemUsed] = formatBytesValueUnit(this.memTotal * this.currentReadings[0], 2, false, forceBinary);
+            let [strMemAvail, unitMemAvail] = formatBytesValueUnit(this.memTotal * (1.0 - this.currentReadings[0]), 2, false, forceBinary);
             toolTipString += _("Used:").split(":")[0].padStart(spaces, " ") + ":\t"  + "" + formatNumber(parseFloat(strMemUsed).toFixed(2), 2).padStart(8, " ") + " " + unitMemUsed.padStart(6, " ") + "\n";
             toolTipString += _("Available:").split(":")[0].padStart(spaces, " ") + ":\t"  + "" + formatNumber(parseFloat(strMemAvail).toFixed(2), 2).padStart(8, " ") + " " + unitMemAvail.padStart(6, " ") + "\n";
         }
@@ -1981,8 +2033,10 @@ var BufferCacheSharedDataProvider = class BufferCacheSharedDataProvider {
         let lenColon = Math.max(colon.length - 1, 0);
         let attributes = [_("Buffer"), _("Cache"), _("Shared")];
 
+        // Mem_showBytesInTooltip selects the unit base: ON = SI (MB/GB), OFF = IEC binary (MiB/GiB).
+        let forceBinary = !this.applet.Mem_showBytesInTooltip;
         for (let i=0, len=attributes.length; i<len; i++) {
-            let [value, unit] = formatBytesValueUnit(Math.round(this.currentReadings[i]), 2, false);
+            let [value, unit] = formatBytesValueUnit(Math.round(this.currentReadings[i]), 2, false, forceBinary);
             value = formatNumber(parseFloat(value).toFixed(2), 2);
             let valueLen = (""+value).length;
             toolTipString += attributes[i].padStart(spaces - lenColon, " ") + colon + "\t" + "" + value.padStart(8, " ") + " " + unit.padStart(6, " ") + "\n";
@@ -2040,18 +2094,23 @@ var SwapDataProvider = class SwapDataProvider {
             trans = this.applet.tooltipSwapCustomTranslation;
         else
             trans = _("Swap");
-        let [strSwapTotal, unitSwapTotal] = formatBytesValueUnit(this.swapTotal, 2, false);
+        // Mem_showAmountsInTooltip toggles the byte amounts (Total/Used/Available); when off the Swap
+        // tooltip is percentages-only. Mem_showBytesInTooltip selects the unit base for those amounts
+        // (ON = SI MB/GB, OFF = IEC MiB/GiB). The used percentage is always shown.
+        let showAmounts = this.applet.Mem_showAmountsInTooltip;
+        let forceBinary = !this.applet.Mem_showBytesInTooltip;
         let trans2 = trans + "";
-        if (this.applet.Mem_showBytesInTooltip) {
+        if (showAmounts) {
+            let [strSwapTotal, unitSwapTotal] = formatBytesValueUnit(this.swapTotal, 2, false, forceBinary);
             trans2 = trans + " " + strSwapTotal + " " + unitSwapTotal;
         }
         trans2 += " (" + formatNumber(parseFloat((Math.round(10000 * this.currentReadings[0]) / 100)).toFixed(2), 2).padStart(5, " ") + " %)"
         let len = trans2.length - 2;
         let toolTipString = "-".repeat(Math.trunc((2*(spaces + 1) - len)/2)) + " " + trans2 + " " + "-".repeat(Math.round((2*(spaces + 1) - len)/2)) + "\n";
-        if (this.applet.Mem_showBytesInTooltip) {
-            let [swapUsedAmount, swapUsedUnit] = formatBytesValueUnit(this.swapTotal * this.currentReadings[0], 2, false);
+        if (showAmounts) {
+            let [swapUsedAmount, swapUsedUnit] = formatBytesValueUnit(this.swapTotal * this.currentReadings[0], 2, false, forceBinary);
             if (isNaN(parseFloat(swapUsedAmount))) swapUsedAmount = "0";
-            let [swapAvailableAmount, swapAvailableUnit] = formatBytesValueUnit(this.swapTotal * (1 - this.currentReadings[0]), 2, false);
+            let [swapAvailableAmount, swapAvailableUnit] = formatBytesValueUnit(this.swapTotal * (1 - this.currentReadings[0]), 2, false, forceBinary);
             toolTipString += _("Used:").split(":")[0].padStart(spaces, " ") + ":\t"  + "" + formatNumber(parseFloat(swapUsedAmount).toFixed(2), 2).padStart(8, " ") + " " + swapUsedUnit.padStart(6, " ") + "\n";
             toolTipString += _("Available:").split(":")[0].padStart(spaces, " ") + ":\t"  + "" + formatNumber(parseFloat(swapAvailableAmount).toFixed(2), 2).padStart(8, " ") + " " + swapAvailableUnit.padStart(6, " ") + "\n";
         }
@@ -2064,6 +2123,76 @@ var SwapDataProvider = class SwapDataProvider {
 
     get isEnabledTooltip() {
         return this.applet.Swap_enabledTooltip;
+    }
+
+    get isRunning() {
+        return this.applet.isRunning;
+    }
+}
+
+var ZramDataProvider = class ZramDataProvider {
+    constructor(applet) {
+        this.applet = applet;
+        this.name = _("ZRAM");
+        this.available = false;
+        this.data = null;
+    }
+
+    getColorList() {
+        return [];
+    }
+
+    getData() {
+        return [];
+    }
+
+    setData(data) {
+        if (data == null) {
+            this.available = false;
+            this.data = null;
+        } else {
+            this.data = data;
+            this.available = true;
+        }
+    }
+
+    getTooltipString() {
+        if (!this.isEnabledTooltip || !this.isEnabledZramTooltip) return "";
+        if (!this.isRunning) return "";
+        if (!this.available || this.data == null) return "";
+
+        // Mem_showBytesInTooltip selects the unit base: ON = SI (MB/GB), OFF = IEC binary (MiB/GiB).
+        let forceBinary = !this.applet.Mem_showBytesInTooltip;
+
+        // Byte rows (disksize, data, compressed) formatted like the other sections.
+        const bytesRow = (label, bytes) => {
+            let [value, unit] = formatBytesValueUnit(Math.round(bytes), 2, false, forceBinary);
+            value = formatNumber(parseFloat(value).toFixed(2), 2);
+            return label.padStart(spaces, " ") + ":\t" + value.padStart(8, " ") + " " + unit.padStart(6, " ") + "\n";
+        };
+
+        // Headline = total RAM zram uses, with algorithm + ratio, e.g. "ZRAM 577.00 MiB (zstd, 3.87x)".
+        let [strTotal, unitTotal] = formatBytesValueUnit(Math.round(this.data.total), 2, false, forceBinary);
+        strTotal = formatNumber(parseFloat(strTotal).toFixed(2), 2);
+        let trans = _("ZRAM") + " " + strTotal + " " + unitTotal + " (" + this.data.algorithm;
+        if (this.data.ratio > 0)
+            trans += ", " + formatNumber(parseFloat(this.data.ratio.toFixed(2)), 2) + "x";
+        trans += ")";
+        let len = trans.length - 2;
+        let toolTipString = "-".repeat(Math.trunc((2*(spaces + 1) - len)/2)) + " " + trans + " " + "-".repeat(Math.round((2*(spaces + 1) - len)/2)) + "\n";
+
+        toolTipString += bytesRow(_("Disk size"), this.data.disksize);
+        toolTipString += bytesRow(_("Data"), this.data.orig);
+        toolTipString += bytesRow(_("Compressed"), this.data.compr);
+        return toolTipString;
+    }
+
+    get isEnabledTooltip() {
+        return this.applet.Swap_enabledTooltip;
+    }
+
+    get isEnabledZramTooltip() {
+        return this.applet.Swap_enabledZramTooltip;
     }
 
     get isRunning() {
